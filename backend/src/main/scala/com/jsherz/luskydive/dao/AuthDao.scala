@@ -24,6 +24,7 @@
 
 package com.jsherz.luskydive.dao
 
+import java.sql.Timestamp
 import java.util.UUID
 
 import akka.event.LoggingAdapter
@@ -32,7 +33,7 @@ import com.jsherz.luskydive.services.DatabaseService
 import com.jsherz.luskydive.util.FutureError._
 
 import scala.concurrent.{ExecutionContext, Future}
-import scalaz.{-\/, \/}
+import scalaz.{-\/, \/, \/-}
 
 
 trait AuthDao {
@@ -41,9 +42,10 @@ trait AuthDao {
     * Authenticate a user, either returning the Left(error) or Right(memberUuid).
     *
     * @param apiKey
+    * @param time Time at which access is required
     * @return
     */
-  def authenticate(apiKey: UUID): Future[String \/ UUID]
+  def authenticate(apiKey: UUID, time: Timestamp): Future[String \/ UUID]
 
   /**
     * Get the API key with the given UUID / key.
@@ -65,15 +67,33 @@ class AuthDaoImpl(protected override val databaseService: DatabaseService)
     * Authenticate a user, either returning the Left(error) or Right(memberUuid).
     *
     * @param apiKey
+    * @param time Time at which access is required
     * @return
     */
-  override def authenticate(apiKey: UUID): Future[String \/ UUID] = {
-    get(apiKey).map {
-      case Some(key) => {
-        if (key.expiresAt < Timestamp.valueOf())
+  override def authenticate(apiKey: UUID, time: Timestamp): Future[String \/ UUID] = {
+    val lookup = db.run(
+      ApiKeys.filter(_.uuid === apiKey).join(CommitteeMembers).on(_.committeeMemberUuid === _.uuid).result.headOption
+    )
+
+    for {
+      lookupResult <- lookup ifNone AuthDaoErrors.invalidApiKey
+    } yield {
+      lookupResult.flatMap {
+        case (foundApiKey, committeeMember) => {
+          // Ensure key hasn't expired
+          if (foundApiKey.expiresAt.after(time)) {
+            // Ensure committee member is allowed to login
+            if (!committeeMember.locked) {
+              \/-(committeeMember.uuid.get)
+            } else {
+              -\/(AuthDaoErrors.accountLocked)
+            }
+          } else {
+            -\/(AuthDaoErrors.invalidApiKey)
+          }
+        }
       }
-      case None => -\/(AuthDaoErrors.invalidApiKey)
-    } withServerError
+    }
   }
 
   /**

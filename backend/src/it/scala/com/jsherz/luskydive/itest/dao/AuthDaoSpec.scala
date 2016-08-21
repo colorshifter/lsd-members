@@ -30,14 +30,11 @@ import java.util.UUID
 
 import akka.actor.ActorSystem
 import akka.event.{Logging, LoggingAdapter}
-import akka.http.scaladsl.marshallers.sprayjson.SprayJsonSupport
 import com.jsherz.luskydive.core.ApiKey
 import com.jsherz.luskydive.dao._
 import com.jsherz.luskydive.itest.util.Util
-import com.jsherz.luskydive.util.{DateJsonFormat, TimestampJsonFormat, UuidJsonFormat}
 import org.scalatest.concurrent.ScalaFutures._
 import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpec}
-import spray.json.DefaultJsonProtocol
 
 import scalaz.{-\/, \/-}
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -78,7 +75,7 @@ class AuthDaoSpec extends WordSpec with Matchers with BeforeAndAfterAll {
 
     "return Right(memberUuid) and update the expiry date for a valid (not expired) API key" in {
       val uuid = UUID.fromString("6a494b6a-9e11-43f1-ae1b-e03139ad80ac")
-      val result = dao.authenticate(uuid)
+      val result = dao.authenticate(uuid, testTime)
 
       result.futureValue shouldEqual \/-(UUID.fromString("52abe905-4d2c-4f38-819c-fc6b5d6b851f"))
 
@@ -91,23 +88,27 @@ class AuthDaoSpec extends WordSpec with Matchers with BeforeAndAfterAll {
     }
 
     "return Left(error.invalidApiKey) if the API key has expired" in {
-      val result = dao.authenticate(UUID.fromString("e10de0cb-5a18-4515-9a16-c03b27f04ce0"))
+      val result = dao.authenticate(UUID.fromString("e10de0cb-5a18-4515-9a16-c03b27f04ce0"), testTime)
 
       result.futureValue shouldEqual -\/("error.invalidApiKey")
     }
 
     "return Left(error.invalidApiKey) if no API key was found" in {
-      val result = dao.authenticate(UUID.fromString("2d25afd4-5e96-4cc1-8255-c077da329092"))
+      val result = dao.authenticate(UUID.fromString("2d25afd4-5e96-4cc1-8255-c077da329092"), testTime)
 
       result.futureValue shouldEqual -\/("error.invalidApiKey")
     }
 
     "return Left(error.accountLocked) if the API key is valid, but the account is locked" in {
-      val result = dao.authenticate(UUID.fromString("49db3b93-c896-4365-a4b8-a6c68dc9266d"))
+      val result = dao.authenticate(UUID.fromString("487a2930-8e6a-41a5-bcc0-b7fd7f2421e4"), testTime)
 
       result.futureValue shouldEqual -\/("error.accountLocked")
     }
 
+  }
+
+  private val testTime = {
+    Timestamp.valueOf("2016-08-21 21:02:10")
   }
 
 }
