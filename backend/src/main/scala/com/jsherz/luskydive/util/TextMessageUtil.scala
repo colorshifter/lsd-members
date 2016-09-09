@@ -22,33 +22,13 @@
   * SOFTWARE.
   */
 
-package com.jsherz.luskydive.core
-
-import java.sql.Timestamp
-import java.util.UUID
+package com.jsherz.luskydive.util
 
 /**
-  * A text message that will be or has been sent to a member.
+  * Utilities for sending text messages.
   */
-case class TextMessage(
-                        uuid: Option[UUID],
-                        memberUuid: UUID,
-                        massTextUuid: Option[UUID],
-                        status: Short,
-                        toNumber: String,
-                        fromNumber: String,
-                        message: String,
-                        // When the message is sent, this holds the external service's ID for the message
-                        // e.g. Twilio's "msid"
-                        externalId: Option[String],
-                        createdAt: Timestamp,
-                        updatedAt: Timestamp
-                      )
+class TextMessageUtil {
 
-object TextMessageStatuses {
-
-  val Pending = 0
-  val Sent = 1
-  val Error = 2
+  
 
 }

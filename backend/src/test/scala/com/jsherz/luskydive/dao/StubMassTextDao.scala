@@ -24,8 +24,10 @@
 
 package com.jsherz.luskydive.dao
 
-import java.sql.Date
+import java.sql.{Date, Timestamp}
+import java.util.UUID
 
+import com.jsherz.luskydive.core.MassText
 import com.jsherz.luskydive.util.{DateUtil, Errors}
 
 import scala.concurrent.Future
@@ -33,6 +35,32 @@ import scalaz.{-\/, \/, \/-}
 
 
 class StubMassTextDao extends MassTextDao {
+
+  /**
+    * Get the mass text with the given UUID.
+    *
+    * @param uuid
+    * @return
+    */
+  override def get(uuid: UUID): Future[String \/ Option[MassText]] = {
+    if (StubMassTextDao.existsMassTextUuid.equals(uuid)) {
+      Future.successful(\/-(
+        Some(MassText(
+          Some(UUID.fromString("b1266b65-40b2-4874-a551-854bf2e2ef26")),
+          UUID.fromString("a8df22ad-c2a4-40b6-9939-852421d9b30e"),
+          "Roll up, roll up {{ name }}, it's time to get yourself down to our skydiving G.I.A.G - meet you there :D " +
+            "#excited #skydiving - Reply \"NOFUN\" to stop these messages.",
+          Timestamp.valueOf("2012-09-25 00:00:00.000000")
+        )))
+      )
+    } else if (StubMassTextDao.unknownMassTextUuid.equals(uuid)) {
+      Future.successful(\/-(None))
+    } else if (StubMassTextDao.serverErrorMassTextUuid.equals(uuid)) {
+      Future.successful(-\/(Errors.internalServer))
+    } else {
+      throw new RuntimeException("unknown uuid used with stub")
+    }
+  }
 
   /**
     * Get the number of members that joined between the given dates.
@@ -51,9 +79,26 @@ class StubMassTextDao extends MassTextDao {
     }
   }
 
+  /**
+    * Send out a mass text message to members that joined between the given dates.
+    *
+    * Use [[filterCount()]] to determine how many members would be contacted.
+    *
+    * @param sender    Committee member that's sending this text
+    * @param startDate Start date (inclusive)
+    * @param endDate   End date (exclusive)
+    * @param template  Template of the message to send
+    * @return UUID of created mass text
+    */
+  override def send(sender: UUID, startDate: Date, endDate: Date, template: String): Future[\/[String, UUID]] = ???
+
 }
 
 object StubMassTextDao {
+
+  val existsMassTextUuid = UUID.fromString("b1266b65-40b2-4874-a551-854bf2e2ef26")
+  val unknownMassTextUuid = UUID.fromString("37360e5d-d443-47cc-a367-49e9519e1a8a")
+  val serverErrorMassTextUuid = UUID.fromString("c1ff0cbb-2d96-4d47-b026-fffa89d968a2")
 
   val validStartDate = DateUtil.makeDate(2016, 8, 1)
   val validEndDate = DateUtil.makeDate(2016, 9, 1)

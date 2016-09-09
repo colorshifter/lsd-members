@@ -28,12 +28,14 @@ import java.util.UUID
 
 import akka.actor.ActorSystem
 import akka.event.{Logging, LoggingAdapter}
+import com.jsherz.luskydive.core.{MassText, TextMessage}
 import com.jsherz.luskydive.dao._
 import com.jsherz.luskydive.itest.util.Util
 import com.jsherz.luskydive.itest.util.DateUtil
 import org.scalatest.concurrent.ScalaFutures._
 import org.scalatest.time.{Seconds, Span}
 import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpec}
+import com.jsherz.luskydive.json.MassTextsJsonSupport._
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scalaz.{-\/, \/-}
@@ -41,6 +43,7 @@ import scalaz.{-\/, \/-}
 class MassTextDaoSpec extends WordSpec with Matchers with BeforeAndAfterAll {
 
   private var dao: MassTextDao = _
+  private var textMessageDao: TextMessageDao = _
 
   implicit val patienceConfig = PatienceConfig(scaled(Span(1, Seconds)))
 
@@ -49,9 +52,29 @@ class MassTextDaoSpec extends WordSpec with Matchers with BeforeAndAfterAll {
     val dbService = Util.setupGoldTestDb()
 
     dao = new MassTextDaoImpl(dbService)
+    textMessageDao = new TextMessageDaoImpl(dbService)
   }
 
-  "MassTextDaoSpec#filterCount" should {
+  "MassTextDao#get" should {
+
+    "return None if the given UUID does not exist" in {
+      val result = dao.get(UUID.fromString("318edeb0-f8cd-49fe-a581-1d03252f390e")).futureValue
+
+      result shouldEqual \/-(None)
+    }
+
+    "return Some(massText) if the given UUID matches a mass text" in {
+      val result = dao.get(UUID.fromString("0e02581c-df85-4200-bedd-55a667740486")).futureValue
+
+      result.isRight shouldBe true
+      result.map {
+        _ shouldEqual Some(Util.fixture[MassText]("0e02581c.json"))
+      }
+    }
+
+  }
+
+  "MassTextDao#filterCount" should {
 
     "return 0 if no members are matched between the given dates" in {
       val result = dao.filterCount(DateUtil.makeDate(1850, 1, 1), DateUtil.makeDate(1851, 1, 1)).futureValue
@@ -93,6 +116,75 @@ class MassTextDaoSpec extends WordSpec with Matchers with BeforeAndAfterAll {
       result.isLeft shouldBe true
       result.map { error =>
         error shouldEqual MassTextDaoErrors.endDateStartDateSame
+      }
+    }
+
+  }
+
+  "MassTextDao#send" should {
+
+    "refuse to send a message to no-one" in {
+      val result = dao.send(
+        UUID.fromString("329ad322-fe4a-4bdc-9c5b-030431766e36"),
+        DateUtil.makeDate(1990, 1, 1),
+        DateUtil.makeDate(1991, 1, 1),
+        "This is a test message. Goodbye {{ name }}!"
+      ).futureValue
+
+      result shouldEqual -\/(MassTextDaoErrors.noMembersMatched)
+    }
+
+    "return an error if the end date is before the start date" in {
+      val result = dao.send(
+        UUID.fromString("ade89632-2ccd-4b9f-93f1-44f5adf9704c"),
+        DateUtil.makeDate(2016, 9, 25),
+        DateUtil.makeDate(2016, 9, 24),
+        "Ello {{ name }} - how are things?"
+      ).futureValue
+
+      result shouldEqual -\/(MassTextDaoErrors.endDateBeforeStartDate)
+    }
+
+    "return an error if the end date and start date are the same" in {
+      val result = dao.send(
+        UUID.fromString("0bca1521-2757-4d58-a2b1-7cd751ec9b14"),
+        DateUtil.makeDate(2015, 10, 4),
+        DateUtil.makeDate(2015, 10, 4),
+        "{{ name }}... {{ name }}? {{ name }}???? Is this thing on?"
+      ).futureValue
+
+      result shouldEqual -\/(MassTextDaoErrors.endDateStartDateSame)
+    }
+
+    "add a mass text record and text message for each matching member" in {
+      val result = dao.send(
+        UUID.fromString("f59c7cd7-3aa6-4cf9-ab3e-798b70fae6e5"),
+        DateUtil.makeDate(2015, 1, 1),
+        DateUtil.makeDate(2015, 2, 1),
+        "Hello, {{ name }}. How are you?!"
+      ).futureValue
+
+      result.isRight shouldBe true
+      result.map { uuid =>
+        val createdMassText = dao.get(uuid).futureValue
+
+        createdMassText.isRight shouldBe true
+        createdMassText.map { massText =>
+          massText.isDefined shouldBe true
+
+          massText.map { mt =>
+            mt.uuid shouldEqual uuid
+            mt.committeeMemberUuid shouldEqual UUID.fromString("f59c7cd7-3aa6-4cf9-ab3e-798b70fae6e5")
+            mt.template shouldEqual "Hello, {{ name }}. How are you?!"
+          }
+        }
+
+        val createdTextMessages = textMessageDao.forMassText(uuid).futureValue
+
+        createdTextMessages.isRight shouldBe true
+        createdTextMessages.map {
+          _ shouldEqual Util.fixture[Vector[TextMessage]]("for_mass_text.json")
+        }
       }
     }
 

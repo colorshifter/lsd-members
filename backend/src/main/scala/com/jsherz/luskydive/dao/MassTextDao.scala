@@ -25,18 +25,29 @@
 package com.jsherz.luskydive.dao
 
 import java.sql.{Date, Timestamp}
+import java.util.UUID
 
 import akka.event.LoggingAdapter
+import com.fasterxml.uuid.Generators
+import com.jsherz.luskydive.core.{MassText, Member, TextMessage, TextMessageStatuses}
 import com.jsherz.luskydive.services.DatabaseService
 import com.jsherz.luskydive.util.FutureError._
 
 import scala.concurrent.{ExecutionContext, Future}
-import scalaz.{-\/, \/}
+import scalaz.{-\/, \/, \/-}
 
 /**
   * Handles recording text messages being sent to many members.
   */
 trait MassTextDao {
+
+  /**
+    * Get the mass text with the given UUID.
+    *
+    * @param uuid
+    * @return
+    */
+  def get(uuid: UUID): Future[String \/ Option[MassText]]
 
   /**
     * Get the number of members that joined between the given dates.
@@ -46,6 +57,20 @@ trait MassTextDao {
     * @return
     */
   def filterCount(startDate: Date, endDate: Date): Future[String \/ Int]
+
+  /**
+    * Send out a mass text message to members that joined between the given dates.
+    *
+    * Use [[filterCount()]] to determine how many members would be contacted.
+    *
+    * @param sender    Committee member that's sending this text
+    * @param startDate Start date (inclusive)
+    * @param endDate   End date (exclusive)
+    * @param template  Template of the message to send
+    * @param createdAt Time the mass text was sent
+    * @return UUID of created mass text
+    */
+  def send(sender: UUID, startDate: Date, endDate: Date, template: String, createdAt: Timestamp): Future[String \/ UUID]
 
 }
 
@@ -57,6 +82,16 @@ class MassTextDaoImpl(protected override val databaseService: DatabaseService)
   extends Tables(databaseService) with MassTextDao {
 
   import driver.api._
+
+  /**
+    * Get the mass text with the given UUID.
+    *
+    * @param uuid
+    * @return
+    */
+  override def get(uuid: UUID): Future[String \/ Option[MassText]] = {
+    db.run(MassTexts.filter(_.uuid === uuid).result.headOption) withServerError
+  }
 
   /**
     * Get the number of members that joined between the given dates.
@@ -71,16 +106,88 @@ class MassTextDaoImpl(protected override val databaseService: DatabaseService)
     } else if (endDate.before(startDate)) {
       Future.successful(-\/(MassTextDaoErrors.endDateBeforeStartDate))
     } else {
-      val startTimestamp = new Timestamp(startDate.getTime)
-      val endTimestamp = new Timestamp(endDate.getTime)
-
       db.run(
-        Members.filter { m =>
-          m.createdAt >= startTimestamp &&
-            m.createdAt < endTimestamp
-        }.countDistinct.result
+        membersCreatedBetween(startDate, endDate).countDistinct.result
       ) withServerError
     }
+  }
+
+  /**
+    * Send out a mass text message to members that joined between the given dates.
+    *
+    * Use [[filterCount()]] to determine how many members would be contacted.
+    *
+    * @param sender    Committee member that's sending this text
+    * @param startDate Start date (inclusive)
+    * @param endDate   End date (exclusive)
+    * @param template  Template of the message to send
+    * @return UUID of created mass text
+    */
+  override def send(sender: UUID, startDate: Date, endDate: Date, template: String, createdAt: Timestamp): Future[String \/ UUID] = {
+    if (startDate.equals(endDate)) {
+      Future.successful(-\/(MassTextDaoErrors.endDateStartDateSame))
+    } else if (endDate.before(startDate)) {
+      Future.successful(-\/(MassTextDaoErrors.endDateBeforeStartDate))
+    } else {
+      val futureMembers: Future[Seq[Member]] = db.run(membersCreatedBetween(startDate, endDate).result)
+
+      futureMembers.map { members =>
+        if (members.isEmpty) {
+          -\/(MassTextDaoErrors.noMembersMatched)
+        } else {
+          val massTextUuid = create(sender, template, createdAt)
+
+          val actions = members.map { member =>
+            val message = TextMessage(
+              uuid = Generators.randomBasedGenerator.generate,
+              memberUuid = member.uuid.get,
+              massTextUuid = uuid,
+
+            )
+
+            db.run(TextMessages += message)
+          }
+        }
+      }
+    }
+  }
+
+  private def membersCreatedBetween(startDate: Date, endDate: Date) = {
+    val startTimestamp = new Timestamp(startDate.getTime)
+    val endTimestamp = new Timestamp(endDate.getTime)
+
+    Members.filter { m =>
+      m.createdAt >= startTimestamp &&
+        m.createdAt < endTimestamp
+    }
+  }
+
+  private def create(committeeMemberUuid: UUID, template: String, createdAt: Timestamp) = {
+    val massText = MassText(
+      Some(Generators.randomBasedGenerator.generate),
+      committeeMemberUuid,
+      template,
+      createdAt
+    )
+
+    db.run((MassTexts returning MassTexts.map(_.uuid)) += massText)
+  }
+
+  private def addTextMessage(member: Member, template: String, massTextUuid: UUID, createdAt: Date) = {
+    val message = template.replace()
+
+    val textMessage = TextMessage(
+      Generators.randomBasedGenerator.generate,
+      member.uuid,
+      massTextUuid,
+      TextMessageStatuses.Pending,
+      member.phoneNumber.get,
+      "PENDING", // TODO: Replace with optional type
+      message,
+      None,
+      createdAt,
+      createdAt
+    )
   }
 
 }
@@ -90,5 +197,7 @@ object MassTextDaoErrors {
   val endDateBeforeStartDate = "error.endDateBeforeStartDate"
 
   val endDateStartDateSame = "error.endDateStartDateSame"
+
+  val noMembersMatched = "error.noMembersMatched"
 
 }
