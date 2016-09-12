@@ -206,4 +206,6 @@ object MassTextDaoErrors {
 
   val noMembersMatched = "error.noMembersMatched"
 
+  val templateRenderMismatch = "error.templateRenderMismatch"
+
 }

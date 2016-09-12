@@ -91,7 +91,15 @@ class StubMassTextDao extends MassTextDao {
     * @param createdAt The time that the mass text was created
     * @return UUID of created mass text
     */
-  override def send(sender: UUID, startDate: Date, endDate: Date, template: String, createdAt: Timestamp): Future[String \/ UUID] = ???
+  override def send(sender: UUID, startDate: Date, endDate: Date, template: String, createdAt: Timestamp): Future[String \/ UUID] = {
+    if (StubMassTextDao.validSenderUuid.equals(sender)) {
+      Future.successful(\/-(StubMassTextDao.validCreatedUuid))
+    } else if (StubMassTextDao.serverErrorUuid.equals(sender)) {
+      Future.successful(-\/(MassTextDaoErrors.noMembersMatched))
+    } else {
+      throw new RuntimeException("unknown sender uuid used with stub")
+    }
+  }
 
 }
 
@@ -107,5 +115,9 @@ object StubMassTextDao {
 
   val serverErrorStartDate = DateUtil.makeDate(2015, 9, 1)
   val serverErrorEndDate = DateUtil.makeDate(2015, 10, 1)
+
+  val validSenderUuid = UUID.fromString("27f233ae-ea33-402f-b59a-9dc7b29cdb11")
+  val serverErrorUuid = UUID.fromString("5f9e6a61-9ab2-45cc-9325-dba547d3f1b6")
+  val validCreatedUuid = UUID.fromString("c754de69-d62b-44a8-bc41-db7b78d49eca")
 
 }

@@ -24,13 +24,15 @@
 
 package com.jsherz.luskydive.apis
 
+import java.sql.Timestamp
+import java.time.LocalDateTime
 import java.util.UUID
 
 import akka.http.scaladsl.server.Directives._
 import akka.http.scaladsl.server._
 import com.jsherz.luskydive.dao.MassTextDao
 import com.jsherz.luskydive.json.MassTextsJsonSupport._
-import com.jsherz.luskydive.json.{TryFilterRequest, TryFilterResponse}
+import com.jsherz.luskydive.json.{MassTextSendRequest, TryFilterRequest, TryFilterResponse}
 
 import scala.concurrent.ExecutionContext
 import scalaz.{-\/, \/-}
@@ -54,8 +56,14 @@ class MassTextApi(private val dao: MassTextDao)
     }
   }
 
+  val sendRoute = (path("send") & post & authDirective & entity(as[MassTextSendRequest])) { (sender, request) =>
+    //val result = dao.send(sender, request.startDate, request.endDate, request.template Timestamp.valueOf(LocalDateTime.now
+    complete("OK")
+  }
+
   val route = pathPrefix("mass-texts") {
-    tryFilterRoute
+    tryFilterRoute ~
+      sendRoute
   }
 
 }
